@@ -8,8 +8,8 @@ import sqlite3
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "ratha_quant_secure_secret_2026")
 
-ADMIN_PASSWORD = "admin123"
-USER_PASSWORD = "user123"
+ADMIN_PASSWORD = "Ratha@123"
+USER_PASSWORD = "user"
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8622254541:AAHOwR8hHnfjMrkz4y8udsEuC1jn49EHjII")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "6915043499")

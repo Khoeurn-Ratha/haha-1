@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, session, render_template_string
 import os
 import requests
-import psycopg
+import psycopg2
 import psycopg2.extras
 import sqlite3
 

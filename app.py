@@ -27,7 +27,7 @@ def send_telegram_alert(message):
         return False
 
 # Database Connection Helper supporting Render PostgreSQL & SQLite Fallback
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://ramote_user:KB6MBdQ5zXkT5zDZ5APXNmBAVgUx6SDZ@dpg-da8k9vijnfac73emabgg-a/ramote")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://ratha_user:QNbnhmZFRbWKJJepa6oRIgjZq7XwTgGD@dpg-dad3caajnfac73e945r0-a/ratha")
 
 def get_db_connection():
     if DATABASE_URL:

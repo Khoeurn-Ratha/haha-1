@@ -8,7 +8,7 @@ import sqlite3
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "ratha_quant_secure_secret_2026")
 
-ADMIN_PASSWORD = "Ratha123"
+ADMIN_PASSWORD = "admin123"
 USER_PASSWORD = "user123"
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8622254541:AAHOwR8hHnfjMrkz4y8udsEuC1jn49EHjII")
@@ -24,6 +24,20 @@ def send_telegram_alert(message):
         return response.status_code == 200
     except Exception as e:
         print(f"Telegram Alert Error: {e}")
+        return False
+
+def send_telegram_photo(photo_file, caption):
+    """Sends a photo with a caption to the Telegram chat."""
+    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        return False
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    files = {"photo": (photo_file.filename, photo_file.read(), photo_file.content_type)}
+    data = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"}
+    try:
+        response = requests.post(url, data=data, files=files, timeout=10)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Telegram Photo Error: {e}")
         return False
 
 # Database Connection Helper supporting Render PostgreSQL & SQLite Fallback
@@ -381,19 +395,54 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- Performance Chart Section -->
+        <!-- Performance & Cycle Charts Grid Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Equity Curve -->
+            <div class="glass-panel rounded-2xl p-6 border-cyan-500/30">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-sm font-bold text-slate-200 tracking-wide flex items-center gap-2 font-mono">
+                        <i class="fa-solid fa-chart-line text-cyan-400"></i> Algorithmic Equity Telemetry Curve
+                    </h2>
+                </div>
+                <div class="h-64 w-full">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Cycle Chart -->
+            <div class="glass-panel rounded-2xl p-6 border-cyan-500/30">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-sm font-bold text-slate-200 tracking-wide flex items-center gap-2 font-mono">
+                        <i class="fa-solid fa-chart-pie text-amber-400"></i> Trading Phase Cycles Progress ($10 -> $100)
+                    </h2>
+                </div>
+                <div class="h-64 w-full flex justify-center">
+                    <canvas id="cycleChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trading Cycles Status Table Section -->
         <div class="glass-panel rounded-2xl p-6 border-cyan-500/30">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-sm font-bold text-slate-200 tracking-wide flex items-center gap-2 font-mono">
-                    <i class="fa-solid fa-chart-line text-cyan-400"></i> Algorithmic Equity Telemetry Curve
+                    <i class="fa-solid fa-list-check text-cyan-400"></i> Compounding Cycle Milestones Table ($10 to $100)
                 </h2>
-                <div class="flex gap-2 text-xs font-mono text-cyan-400/80">
-                    <span class="px-2.5 py-1 bg-black/90 border border-cyan-500/40 rounded-lg">Render Cloud Database</span>
-                </div>
+                <span class="text-xs text-cyan-400 font-mono">Goal: $100 Terminal Target</span>
             </div>
-            <div class="h-72 w-full">
-                <canvas id="performanceChart"></canvas>
-            </div>
+            <table class="w-full text-left text-xs font-mono whitespace-nowrap">
+                <thead>
+                    <tr class="border-b border-cyan-500/40 text-cyan-400 font-bold">
+                        <th class="pb-3 px-3">ID</th>
+                        <th class="pb-3 px-3">Cycle Phase</th>
+                        <th class="pb-3 px-3">Target Amount</th>
+                        <th class="pb-3 px-3">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="cyclesTableBody" class="divide-y divide-cyan-500/10">
+                    <!-- Data populated via JavaScript -->
+                </tbody>
+            </table>
         </div>
 
         <!-- Interactive Grid: Input Controls & Trade Ledger -->
@@ -423,6 +472,10 @@ HTML_TEMPLATE = """
                     <div>
                         <label class="block text-cyan-400/70 mb-1 font-semibold">Net PnL ($)</label>
                         <input type="number" step="any" id="tradePnl" placeholder="e.g. 15.50 or -4.20" required class="w-full bg-black/90 border border-cyan-500/40 rounded-xl px-3 py-2.5 text-cyan-200 focus:border-cyan-400 focus:outline-none transition-colors">
+                    </div>
+                    <div>
+                        <label class="block text-cyan-400/70 mb-1 font-semibold">Chart / Setup Photo (Optional)</label>
+                        <input type="file" id="tradePhoto" accept="image/*" class="w-full bg-black/90 border border-cyan-500/40 rounded-xl px-3 py-2 text-cyan-200 file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-500 file:text-black hover:file:bg-cyan-400 transition-colors">
                     </div>
                     <button type="submit" class="w-full py-3 bg-gradient-to-r from-cyan-500 to-emerald-400 text-black font-extrabold rounded-xl hover:opacity-90 hover:shadow-neon transition-all tracking-wider uppercase">
                         Transmit & Broadcast Telegram
@@ -466,11 +519,74 @@ HTML_TEMPLATE = """
     <script>
         let currentUserRole = null;
         let performanceChart = null;
+        let cycleChart = null;
+
+        // ទិន្នន័យគំរូសម្រាប់វដ្ដពី $10 ទៅ $100
+        const sampleCycles = [
+            { id: 1, cycle_name: "Cycle 1 ($10 -> $20)", target_amount: 20.0, status: "COMPLETED" },
+            { id: 2, cycle_name: "Cycle 2 ($20 -> $40)", target_amount: 40.0, status: "IN PROGRESS" },
+            { id: 3, cycle_name: "Cycle 3 ($40 -> $70)", target_amount: 70.0, status: "PENDING" },
+            { id: 4, cycle_name: "Cycle 4 ($70 -> $100)", target_amount: 100.0, status: "PENDING" }
+        ];
 
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('tradeDate').valueAsDate = new Date();
+            loadCycleTableAndChart();
             checkAuthStatus();
         });
+
+        function loadCycleTableAndChart() {
+            const tbody = document.getElementById('cyclesTableBody');
+            tbody.innerHTML = '';
+            const labels = [];
+            const data = [];
+
+            sampleCycles.forEach(c => {
+                labels.push(c.cycle_name);
+                data.push(c.target_amount);
+
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-cyan-500/15 transition-colors';
+                tr.innerHTML = `
+                    <td class="py-3 px-3 text-cyan-400/60">#${c.id}</td>
+                    <td class="py-3 px-3 font-bold text-slate-200">${c.cycle_name}</td>
+                    <td class="py-3 px-3 text-amber-400 font-bold">$${c.target_amount.toFixed(2)}</td>
+                    <td class="py-3 px-3"><span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${c.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : c.status === 'IN PROGRESS' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-slate-500/10 text-slate-400 border border-slate-500/30'}">${c.status}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            renderCycleChart(labels, data);
+        }
+
+        function renderCycleChart(labels, data) {
+            const ctx = document.getElementById('cycleChart').getContext('2d');
+            if (cycleChart) cycleChart.destroy();
+            
+            cycleChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Phase Target ($)',
+                        data: data,
+                        backgroundColor: ['#10b981', '#f59e0b', '#00f0ff', '#8b5cf6'],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { labels: { color: '#00f0ff', font: { family: 'JetBrains Mono', weight: 'bold', size: 11 } } } 
+                    },
+                    scales: {
+                        x: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { display: false } },
+                        y: { ticks: { color: '#64748b', font: { family: 'JetBrains Mono', size: 10 } }, grid: { color: 'rgba(0, 240, 255, 0.05)' } }
+                    }
+                }
+            });
+        }
 
         async function checkAuthStatus() {
             try {
@@ -587,20 +703,27 @@ HTML_TEMPLATE = """
 
         async function addTrade(e) {
             e.preventDefault();
-            const date = document.getElementById('tradeDate').value;
-            const pair = document.getElementById('tradePair').value;
-            const type = document.getElementById('tradeType').value;
-            const pnl = document.getElementById('tradePnl').value;
+            const formData = new FormData();
+            formData.append('date', document.getElementById('tradeDate').value);
+            formData.append('pair', document.getElementById('tradePair').value);
+            formData.append('type', document.getElementById('tradeType').value);
+            formData.append('pnl', document.getElementById('tradePnl').value);
+            
+            const photoInput = document.getElementById('tradePhoto');
+            if (photoInput.files[0]) {
+                formData.append('photo', photoInput.files[0]);
+            }
+
             try {
                 const res = await fetch('/api/trades', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date, pair, type, pnl })
+                    body: formData
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
                     document.getElementById('tradePair').value = '';
                     document.getElementById('tradePnl').value = '';
+                    document.getElementById('tradePhoto').value = '';
                     loadTrades();
                 }
             } catch (err) { console.error('Error adding trade:', err); }
@@ -741,11 +864,11 @@ def handle_trades():
         return jsonify({"error": "Access denied. Admin rights required."}), 403
 
     if request.method == "POST":
-        data = request.get_json()
-        date = data.get("date")
-        pair = data.get("pair", "").upper()
-        t_type = data.get("type", "").upper()
-        pnl = float(data.get("pnl", 0))
+        date = request.form.get("date")
+        pair = request.form.get("pair", "").upper()
+        t_type = request.form.get("type", "").upper()
+        pnl = float(request.form.get("pnl", 0))
+        photo = request.files.get("photo")
 
         if db_type == "postgres":
             cursor.execute("INSERT INTO trades (date, pair, type, pnl) VALUES (%s, %s, %s, %s) RETURNING id", (date, pair, t_type, pnl))
@@ -759,7 +882,11 @@ def handle_trades():
         conn.close()
 
         alert_msg = f"🤖 *NEW NEURAL TRADE EXECUTED*\n\n📈 Pair: `{pair}`\n🔹 Vector: `{t_type}`\n💰 Net PnL: `${pnl:.2f}`\n📅 Timestamp: `{date}`"
-        send_telegram_alert(alert_msg)
+        
+        if photo:
+            send_telegram_photo(photo, alert_msg)
+        else:
+            send_telegram_alert(alert_msg)
 
         return jsonify({"status": "success", "trade": {"id": new_id, "date": date, "pair": pair, "type": t_type, "pnl": pnl}})
 
@@ -774,5 +901,5 @@ def handle_trades():
         return jsonify({"status": "success"})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 500))
     app.run(host="0.0.0.0", port=port)
